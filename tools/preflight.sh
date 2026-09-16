@@ -439,7 +439,7 @@ shell_lib_tests() {
 # ===========================================================================
 
 # ---- posix group (mirrors linux.yml's "Lint POSIX sh scripts" step) --------
-# The #!/bin/sh corpus is three files today (site/install.sh,
+# The #!/bin/sh corpus is four files today (site/install.sh, site/relay.sh,
 # tools/linux-replay-entrypoint.sh and tools/git-hooks/shim) and the gate
 # re-lints all of them whenever it fires — it is a fraction of a second, and
 # the trigger cannot enumerate them anyway, because a NEW POSIX script is

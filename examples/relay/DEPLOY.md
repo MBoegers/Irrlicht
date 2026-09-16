@@ -18,8 +18,9 @@ through NAT with no inbound port.
 
 ### One command (Linux with systemd)
 
-`site/relay.sh`, served at <https://irrlicht.io/relay.sh>, does this section
-and the next three for you: it matches the architecture, downloads and verifies
+`site/relay.sh`, served at <https://irrlicht.io/relay.sh>, does this section,
+[Bearer tokens](#bearer-tokens), [TLS](#tls) and [systemd](#systemd) for you:
+it matches the architecture, downloads and verifies
 the release tarball, extracts it to `/opt/irrlichtrelay` with `bin/` and
 `Resources/web/` together, creates the `irrlichtrelay` user and
 `/var/lib/irrlichtrelay`, installs and enables a unit equivalent to

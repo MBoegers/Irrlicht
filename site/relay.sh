@@ -23,6 +23,12 @@
 # instance unbootable, and flushing the ruleset kills the iSCSI boot volume.
 
 set -eu
+# sudo keeps the caller's umask when it is stricter than 022, so a root shell
+# with umask 077 would give the prefix and Resources/web/ modes the service
+# user cannot traverse, and the unit would die at 203/EXEC. Every path this
+# script creates is meant to be world-readable except the state dir, which
+# gets an explicit 0700 below.
+umask 022
 
 REPO="ingo-eichhorst/Irrlicht"
 RELAY_NAME="irrlichtrelay"
@@ -134,6 +140,9 @@ while [ $# -gt 0 ]; do
         *) fail "Unknown option: $1 (try --help)" ;;
     esac
 done
+
+# Release tags are v0.6.3; the download path wants the bare number. Accept both.
+VERSION="${VERSION#v}"
 
 [ -n "$DOMAIN" ] && [ "$TAILSCALE" -eq 1 ] && fail "--domain and --tailscale are exclusive: the relay has one public origin."
 [ "$PURGE" -eq 1 ] && [ "$UNINSTALL" -eq 0 ] && fail "--purge only makes sense together with --uninstall."
@@ -300,35 +309,36 @@ fi
 # Nothing on the host is touched until the bytes are verified: a failed
 # download must leave a running relay running.
 
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT INT TERM
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf "$WORK_DIR"' EXIT
+trap 'rm -rf "$WORK_DIR"; exit 130' INT TERM
 
 BASE="https://github.com/$REPO/releases/download/v${VERSION}"
 ASSET="${RELAY_NAME}-linux-${ARCH}.tar.gz"
 
 step "Downloading checksums"
-fetch -o "$TMPDIR/checksums.sha256" "$BASE/checksums.sha256" \
+fetch -o "$WORK_DIR/checksums.sha256" "$BASE/checksums.sha256" \
     || fail "Could not download $BASE/checksums.sha256"
 ok
 
 step "Downloading $ASSET"
-fetch -o "$TMPDIR/$ASSET" "$BASE/$ASSET" \
+fetch -o "$WORK_DIR/$ASSET" "$BASE/$ASSET" \
     || fail "Download failed — does v$VERSION carry $ASSET? Relay tarballs ship from v0.6.3 on."
 ok
 
 step "Verifying checksum"
-sha256_verify "$TMPDIR" "$ASSET" || fail "Checksum mismatch — aborting"
+sha256_verify "$WORK_DIR" "$ASSET" || fail "Checksum mismatch — aborting"
 ok
 
 step "Extracting $ASSET"
-mkdir -p "$TMPDIR/extract"
-tar -xzf "$TMPDIR/$ASSET" -C "$TMPDIR/extract" || fail "Extraction failed"
+mkdir -p "$WORK_DIR/extract"
+tar -xzf "$WORK_DIR/$ASSET" -C "$WORK_DIR/extract" || fail "Extraction failed"
 # The layout is load-bearing, not cosmetic: the relay finds the dashboard it
 # serves at ../Resources/web relative to the binary, and a lone binary answers
 # 503 on /. Refuse a tarball that would install that.
-[ -x "$TMPDIR/extract/bin/$RELAY_NAME" ] \
+[ -x "$WORK_DIR/extract/bin/$RELAY_NAME" ] \
     || fail "Unexpected tarball layout: bin/$RELAY_NAME is missing. Refusing to install a relay with no dashboard."
-[ -f "$TMPDIR/extract/Resources/web/index.html" ] \
+[ -f "$WORK_DIR/extract/Resources/web/index.html" ] \
     || fail "Unexpected tarball layout: Resources/web/index.html is missing. Refusing to install a relay that would answer 503 on /."
 ok
 
@@ -351,6 +361,16 @@ elif [ "$TAILSCALE" -eq 1 ]; then
     [ -n "$TS_NAME" ] || fail "Could not read a DNSName from 'tailscale status --json'. Is tailscale up and MagicDNS enabled?"
     PUBLIC_URL="https://$TS_NAME"
     printf '%s\n' "$TS_NAME"
+elif [ -f "$UNIT_PATH" ]; then
+    # A flagless re-run is the upgrade path the unit header advertises. The
+    # previous install's origin lives in its ExecStart; dropping it here would
+    # silently turn QR pairing off while the wss:// URL kept working, which is
+    # the kind of failure nobody diagnoses. Keep it.
+    PUBLIC_URL=$(sed -n 's/^ExecStart=.* --public-url \([^ ]*\).*$/\1/p' "$UNIT_PATH" | head -n 1)
+    if [ -n "$PUBLIC_URL" ]; then
+        step "Keeping the origin from the previous install"
+        printf '%s\n' "$PUBLIC_URL"
+    fi
 fi
 
 # ─── Install ───────────────────────────────────────────────────────────────
@@ -364,7 +384,7 @@ fi
 step "Installing to $PREFIX"
 rm -rf "$PREFIX"
 mkdir -p "$PREFIX"
-cp -R "$TMPDIR/extract/." "$PREFIX/"
+cp -R "$WORK_DIR/extract/." "$PREFIX/"
 chmod 755 "$PREFIX/bin/$RELAY_NAME"
 ok
 
@@ -458,6 +478,8 @@ systemctl enable --now "$RELAY_NAME" || fail "systemctl enable --now $RELAY_NAME
 ok
 
 step "Waiting for the relay to answer on $RELAY_ADDR"
+# 15 rounds of a 1s connect timeout plus a 1s sleep: up to 30s. The relay
+# binds in milliseconds, so not answering by then is a failure, not slowness.
 i=0
 UP=0
 while [ $i -lt 15 ]; do
@@ -471,9 +493,10 @@ done
 if [ "$UP" -eq 1 ]; then
     ok
 else
-    printf '%sstill starting%s\n' "$YELLOW" "$RESET"
-    warn "The relay did not answer within 15s. Check: journalctl -u $RELAY_NAME -n 50"
-    warn "  A unit dying at status=203/EXEC means the wrong architecture was installed ($ARCH)."
+    printf '%snot answering%s\n' "$RED" "$RESET"
+    warn "The relay did not answer on $RELAY_ADDR within 30s. Start with: journalctl -u $RELAY_NAME -n 50"
+    warn "  status=203/EXEC or 226/NAMESPACE: the service user cannot read $PREFIX (check modes and mounts)."
+    warn "  'address already in use': something else holds port $RELAY_PORT."
 fi
 
 # ─── TLS front ─────────────────────────────────────────────────────────────
@@ -549,7 +572,11 @@ fi
 # ─── Report ────────────────────────────────────────────────────────────────
 
 say ""
-say "  ${GREEN}✓${RESET} ${BOLD}irrlichtrelay v$VERSION${RESET} installed and running as a systemd service"
+if [ "$UP" -eq 1 ]; then
+    say "  ${GREEN}✓${RESET} ${BOLD}irrlichtrelay v$VERSION${RESET} installed and running as a systemd service"
+else
+    say "  ${RED}✗${RESET} ${BOLD}irrlichtrelay v$VERSION${RESET} installed, but the service is not answering yet (see above)"
+fi
 say ""
 
 # What the Mac wants, in the form it wants it. Settings → Sources takes a
@@ -609,4 +636,7 @@ fi
 say ""
 say "  ${DIM}Logs: journalctl -u $RELAY_NAME -f     Uninstall: curl -fsSL https://irrlicht.io/relay.sh | sudo sh -s -- --uninstall${RESET}"
 say ""
+# Everything is on disk and the token is printed either way; the exit code
+# reports whether the relay is actually serving, because that was the point.
+[ "$UP" -eq 1 ] || exit 1
 exit 0
