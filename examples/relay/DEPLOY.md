@@ -16,14 +16,39 @@ through NAT with no inbound port.
 
 ## Get the binary
 
+### One command (Linux with systemd)
+
+`site/relay.sh`, served at <https://irrlicht.io/relay.sh>, does this section
+and the next three for you: it matches the architecture, downloads and verifies
+the release tarball, extracts it to `/opt/irrlichtrelay` with `bin/` and
+`Resources/web/` together, creates the `irrlichtrelay` user and
+`/var/lib/irrlichtrelay`, installs and enables a unit equivalent to
+[`irrlichtrelay.service`](./irrlichtrelay.service), issues the first bearer
+token as the service user, and under `--domain` installs Caddy and writes the
+reverse-proxy block from [TLS](#tls) below:
+
+```bash
+curl -fsSL https://irrlicht.io/relay.sh | sudo sh -s -- --domain relay.example.com
+# on a tailnet instead:
+curl -fsSL https://irrlicht.io/relay.sh | sudo sh -s -- --tailscale
+# loopback only, front it yourself:
+curl -fsSL https://irrlicht.io/relay.sh | sudo sh
+```
+
+It ends by printing the relay URL and the token in the form the Mac's
+**Settings → Sources** expects, plus the firewall command for the host — which
+it never runs itself; ["The firewall is two gates"](#the-firewall-is-two-gates-and-the-console-only-shows-you-one)
+below is why. It also never touches DNS. `--uninstall` reverses it and keeps
+`/var/lib/irrlichtrelay` (the [four files](#what-lands-on-disk) that let a
+rebuilt relay keep its paired phones); `--uninstall --purge` removes that too.
+`--help` lists the rest.
+
 ### From a release (Linux, amd64 + arm64)
 
-`irrlichtrelay-linux-<arch>.tar.gz` is built by every release **from the next
-one onward** — no published release carries it yet, so check the releases page
-and use the from-source path below if it is not there. It carries the
-dashboard alongside the binary. Extract it somewhere and keep the two
-directories together — the relay finds its UI at `../Resources/web` relative to
-the binary, so moving `bin/irrlichtrelay` out on its own leaves the dashboard
+`irrlichtrelay-linux-<arch>.tar.gz` ships with every release from `v0.6.3` on.
+It carries the dashboard alongside the binary. Extract it somewhere and keep the
+two directories together — the relay finds its UI at `../Resources/web` relative
+to the binary, so moving `bin/irrlichtrelay` out on its own leaves the dashboard
 answering 503:
 
 ```bash
@@ -148,7 +173,8 @@ Empty (default) allows all origins — fine for loopback, not for a public bind.
 ## systemd
 
 A ready-to-edit unit ships at [`irrlichtrelay.service`](./irrlichtrelay.service) (binds loopback + auth;
-front it with one of the TLS proxies above). Install:
+front it with one of the TLS proxies above). The [one-command installer](#one-command-linux-with-systemd)
+does all of the following; by hand:
 
 ```bash
 # binary at /usr/local/bin/irrlichtrelay (see "Get the binary")

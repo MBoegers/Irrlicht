@@ -1,5 +1,13 @@
 # systemd unit for the standalone irrlichtrelay hub (issue #539).
 #
+# The quick way (#1964): on a Linux host with systemd,
+#   curl -fsSL https://irrlicht.io/relay.sh | sudo sh -s -- --domain relay.example.com
+# installs the release tarball to /opt/irrlichtrelay, writes a unit equivalent
+# to this one with ExecStart pointed there, creates the user and the state dir,
+# issues the first token and puts Caddy in front. What follows is the by-hand
+# version, for hosts the installer refuses or operators who want to see every
+# step.
+#
 # Install (run as root). Steps 1 and 1b are one step if you use the release
 # tarball — see "The dashboard" below:
 #   1. Build/copy the binary to /usr/local/bin/irrlichtrelay

@@ -144,14 +144,16 @@
       <ol class="steps">
         <li>
           <strong>Get the binary</strong>
-          <p>Building from a checkout works everywhere and needs only Go:</p>
+          <p>On a Linux server with systemd, one command does this step and the next two &mdash; it downloads and verifies the release tarball, installs it as a hardened systemd service, issues the first token, and puts Caddy in front for TLS:</p>
+          <pre><code>curl -fsSL https://irrlicht.io/relay.sh | sudo sh -s -- --domain relay.example.com</code></pre>
+          <p>Pass <code>--tailscale</code> instead of <code>--domain</code> on a tailnet, or neither for a loopback-only relay you front yourself. It ends by printing the relay URL and the token in the form step 4 asks for, and the firewall command for that host, which it deliberately never runs. DNS stays yours too. <code>--help</code> lists everything it does; <code>--uninstall</code> reverses it.</p>
+          <p>By hand: every release from <code>v0.6.3</code> on carries <code>irrlichtrelay-linux-amd64.tar.gz</code> and <code>irrlichtrelay-linux-arm64.tar.gz</code>. Keep a tarball&rsquo;s <code>bin/</code> and <code>Resources/web/</code> directories together &mdash; the relay finds the dashboard it serves at <code>../Resources/web</code> relative to the binary, and a lone binary answers <code>503</code> on <code>/</code>. Building from a checkout works everywhere else and needs only Go, but installs no dashboard, so point <code>IRRLICHT_UI_DIR</code> at a copy of <code>platforms/web/</code>; the operator guide below has the details.</p>
           <pre><code>cd core
 go build -o /usr/local/bin/irrlichtrelay ./cmd/irrlichtrelay</code></pre>
-          <p>The release build also produces Linux tarballs, <code>irrlichtrelay-linux-amd64.tar.gz</code> and <code>irrlichtrelay-linux-arm64.tar.gz</code>; check the <a href="https://github.com/ingo-eichhorst/Irrlicht/releases/latest">latest release</a> for the version you want and build from source if it is not there yet. If you use a tarball, keep its <code>bin/</code> and <code>Resources/web/</code> directories together &mdash; the relay finds the dashboard it serves at <code>../Resources/web</code> relative to the binary, and a lone binary answers <code>503</code> on <code>/</code>. A from-source build installs no dashboard at all, so point <code>IRRLICHT_UI_DIR</code> at a copy of <code>platforms/web/</code>; the operator guide below has the details.</p>
         </li>
         <li>
           <strong>Serve it over TLS, with auth on</strong>
-          <p>The usual shape is the relay on loopback behind a TLS-terminating reverse proxy:</p>
+          <p>The installer did this already; skip to step 4. By hand, the usual shape is the relay on loopback behind a TLS-terminating reverse proxy:</p>
           <pre><code>irrlichtrelay serve --addr 127.0.0.1:7839 --auth tokens-file</code></pre>
           <p>The relay can also terminate TLS itself with <code>--tls-cert</code> and <code>--tls-key</code> (both flags are required together).</p>
         </li>
@@ -164,7 +166,7 @@ irrlichtrelay token issue --label "my-browser"</code></pre>
         </li>
         <li>
           <strong>Point the daemon at it</strong>
-          <p>Either set <code>IRRLICHT_RELAY_URL</code> and <code>IRRLICHT_RELAY_TOKEN</code> (see <a href="configuration.html">Configuration</a>), or enter the URL and token under <strong>Settings &rarr; Sources</strong> in the macOS app or the dashboard. The daemon dials <em>out</em>, so it needs no inbound port and works behind NAT.</p>
+          <p>Either set <code>IRRLICHT_RELAY_URL</code> and <code>IRRLICHT_RELAY_TOKEN</code> (see <a href="configuration.html">Configuration</a>), or in the macOS app open <strong>Settings &rarr; Advanced Settings &rarr; Sources</strong>, turn on <strong>Publish to relay</strong>, and enter the relay URL (<code>wss://&lt;your-relay&gt;</code>) and the token. The installer prints both in exactly that form. The daemon dials <em>out</em>, so it needs no inbound port and works behind NAT.</p>
         </li>
         <li>
           <strong>Open the dashboard the relay serves</strong>
